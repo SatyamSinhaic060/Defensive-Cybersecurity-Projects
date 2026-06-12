@@ -1,0 +1,49 @@
+import socket
+import subprocess
+import sys
+
+# Define the port to use as a trap (e.g., port 21 is historically targeted by bots)
+HONEY_PORT = 2121 
+
+def block_ip(attacker_ip):
+    """Executes a Linux system command to block the malicious IP via iptables."""
+    print(f"[🚨 BLOCKING] Attempting to block IP: {attacker_ip} via iptables...")
+    
+    # Linux command: sudo iptables -A INPUT -s [IP] -j DROP
+    command = ["sudo", "iptables", "-A", "INPUT", "-s", attacker_ip, "-j", "DROP"]
+    
+    try:
+        # Run the terminal command directly from Python
+        subprocess.run(command, check=True)
+        print(f"[🔒 SECURED] Effectively blocked {attacker_ip} from the system.")
+    except subprocess.CalledProcessError:
+        print(f"[-] Failed to execute firewall block. Are you running as root/sudo?")
+
+def start_honey_port():
+    # Setup a standard TCP socket listener
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    try:
+        server.bind(('0.0.0.0', HONEY_PORT))
+        server.listen(5)
+        print(f"[*] Honey-Port active and listening on port {HONEY_PORT}...")
+    except Exception as e:
+        print(f"[-] Failed to bind to port {HONEY_PORT}: {e}")
+        sys.exit(1)
+
+    while True:
+        # Accept incoming connection attempts
+        client_conn, client_addr = server.accept()
+        attacker_ip = client_addr[0]
+        
+        print(f"\n[⚠️ HONEYPOT TRIGGERED] Unauthorized connection attempt from: {attacker_ip}")
+        
+        # Close the connection immediately to drop the attacker
+        client_conn.close()
+        
+        # Trigger the active defense mechanism
+        block_ip(attacker_ip)
+
+if __name__ == "__main__":
+    # This script requires root to open sockets and modify firewall rules
+    start_honey_port()
