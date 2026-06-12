@@ -1,0 +1,53 @@
+from scapy.all import sniff, IP, TCP, UDP, DNS, DNSQR, Raw
+import base64
+
+def process_packet(packet):
+    """Callback function executed automatically for every intercepted network packet."""
+    
+    # Check if the packet contains an IP layer
+    if packet.haslayer(IP):
+        ip_src = packet[IP].src
+        ip_dst = packet[IP].dst
+
+        # --- 1. DETECT UNENCRYPTED DNS REQUESTS ---
+        # DNS standard traffic runs over UDP port 53
+        if packet.haslayer(UDP) and packet.haslayer(DNS) and packet[DNS].opcode == 0:
+            # Check if it is a DNS Query Request (DNSQR)
+            if packet.haslayer(DNSQR):
+                query_name = packet[DNSQR].qname.decode('utf-8', errors='ignore')
+                print(f"[DNS REQUEST] Client {ip_src} is looking up domain: {query_name}")
+
+        # --- 2. DETECT HTTP BASIC AUTHENTICATION (UNENCRYPTED PLAINTEXT) ---
+        # HTTP standard traffic runs over TCP port 80
+        if packet.haslayer(TCP) and packet.haslayer(Raw):
+            try:
+                # Decode the raw payload data of the TCP packet
+                payload = packet[Raw].load.decode('utf-8', errors='ignore')
+                
+                # Check if the HTTP header contains "Authorization: Basic"
+                if "Authorization: Basic" in payload:
+                    print(f"\n[⚠️ SECURITY ALERT] Unencrypted HTTP Credentials Captured over TCP!")
+                    print(f"   Source IP: {ip_src} -> Destination IP: {ip_dst}")
+                    
+                    # Extract the base64 string following "Authorization: Basic "
+                    for line in payload.split("\r\n"):
+                        if "Authorization: Basic" in line:
+                            b64_credentials = line.split("Basic ")[1].strip()
+                            # Decode base64 (format is usually username:password)
+                            decoded_creds = base64.b64decode(b64_credentials).decode('utf-8', errors='ignore')
+                            print(f"   Exposed Credentials (Decoded): {decoded_creds}\n")
+            except Exception as e:
+                # Suppress parsing errors for non-text payloads
+                pass
+
+def main():
+    print("[*] Initializing Network Packet Sniffer...")
+    print("[*] Monitoring live traffic for unencrypted DNS requests and HTTP credentials...")
+    print("[*] Press Ctrl+C to stop sniffing.\n")
+    
+    # prn points to our callback function
+    # store=0 tells Scapy not to keep packets in RAM, preventing memory leaks
+    sniff(prn=process_packet, store=0)
+
+if __name__ == "__main__":
+    main()
