@@ -1,0 +1,82 @@
+import re
+import json
+import requests
+
+# Paste your free AbuseIPDB API key here
+API_KEY = "d784fe401b08a89229be70390b22340656c7e9cc860799221ed45a1238b1c05c0dc4386e2b2ffc1f"
+API_URL = "https://api.abuseipdb.com/api/v2/check"
+
+def extract_ips_from_log(log_file_path):
+    """Reads a log file and extracts all unique IPv4 addresses using regex."""
+    # Regular expression pattern to match standard IPv4 addresses
+    ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+    unique_ips = set()
+
+    try:
+        with open(log_file_path, 'r') as file:
+            for line in file:
+                # Find all IP matches in the current log line
+                matches = re.findall(ip_pattern, line)
+                for ip in matches:
+                    unique_ips.add(ip)
+        print(f"[+] Successfully parsed log. Found {len(unique_ips)} unique IP addresses.")
+        return list(unique_ips)
+    except FileNotFoundError:
+        print(f"[-] Error: The file at {log_file_path} was not found.")
+        return []
+
+def check_ip_threat_intel(ip_address):
+    """Queries AbuseIPDB API to see if an IP address is known to be malicious."""
+    headers = {
+        'Accept': 'application/json',
+        'Key': API_KEY
+    }
+    querystring = {
+        'ipAddress': ip_address,
+        'maxAgeInDays': '90'
+    }
+
+    try:
+        response = requests.get(API_URL, headers=headers, params=querystring)
+        if response.status_code == 200:
+            data = response.json()['data']
+            # abuseConfidenceScore ranges from 0 (safe) to 100 (highly malicious)
+            return data.get('abuseConfidenceScore', 0), data.get('countryCode', 'Unknown')
+        else:
+            print(f"[-] API Error for {ip_address}: HTTP {response.status_code}")
+            return 0, 'Unknown'
+    except Exception as e:
+        print(f"[-] Connection Error: {e}")
+        return 0, 'Unknown'
+
+def main():
+    # Example path to your log file (you can create a dummy text file named access.log to test)
+    log_path = "access.log" 
+    
+    ips_to_check = extract_ips_from_log(log_path)
+    
+    if not ips_to_check:
+        print("[-] No IPs found to analyze. Exiting.")
+        return
+
+    print("\n--- Starting Threat Intelligence Correlation ---")
+    for ip in ips_to_check:
+        # Skip local/private network loopbacks
+        if ip.startswith("127.0.") or ip.startswith("192.168."):
+            continue
+            
+        print(f"[*] Checking {ip}...")
+        score, country = check_ip_threat_intel(ip)
+        
+        # Set a threshold for generating a security alert (e.g., confidence score > 50%)
+        if score >= 50:
+            print(f" [CRITICAL ALERT] Malicious IP Detected!")
+            print(f"   -> IP: {ip}")
+            print(f"   -> Origin Country: {country}")
+            print(f"   -> Abuse Confidence Score: {score}%\n")
+        else:
+            print(f"   -> {ip} appears clean (Score: {score}%)\n")
+
+if __name__ == "__main__":
+    main()
+                                                                
