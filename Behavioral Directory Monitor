@@ -1,0 +1,55 @@
+import os
+import time
+import hashlib
+
+# Directory you want to protect (e.g., your Documents folder)
+WATCH_DIRECTORY = "./protected_folder"
+
+def calculate_folder_snapshot(directory):
+    """Creates a baseline record of filenames and their current file hashes."""
+    snapshot = {}
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+        # Create a dummy canary file to start monitoring
+        with open(os.path.join(directory, "000_canary.txt"), "w") as f:
+            f.write("DO NOT MODIFY. SECURITY MONITORING FILE.")
+            
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            try:
+                # Read the file and generate a SHA-256 hash
+                with open(file_path, "rb") as f:
+                    file_hash = hashlib.sha256(f.read()).hexdigest()
+                snapshot[file_path] = file_hash
+            except Exception:
+                # Pass if file is locked or unreadable
+                pass
+    return snapshot
+
+def monitor_directory():
+    print(f"[*] Establishing cryptographic baseline for: {WATCH_DIRECTORY}")
+    baseline = calculate_folder_snapshot(WATCH_DIRECTORY)
+    print(f"[+] Baseline stable. Monitoring for behavioral changes... (Ctrl+C to stop)")
+
+    while True:
+        time.sleep(2) # Scan every 2 seconds
+        current_snapshot = calculate_folder_snapshot(WATCH_DIRECTORY)
+        
+        # Check for deleted or modified files
+        for file_path in baseline:
+            if file_path not in current_snapshot:
+                print(f"[🚨 RANSOMWARE ALERT] File DELETED or RENAMED: {file_path}")
+            elif baseline[file_path] != current_snapshot[file_path]:
+                print(f"[🚨 SECURITY ALERT] File CRITICALLY MODIFIED: {file_path}")
+                
+        # Check for brand new files added
+        for file_path in current_snapshot:
+            if file_path not in baseline:
+                print(f"[⚠️ NOTICE] New file dropped into folder: {file_path}")
+                
+        # Update baseline for the next cycle
+        baseline = current_snapshot
+
+if __name__ == "__main__":
+    monitor_directory()
